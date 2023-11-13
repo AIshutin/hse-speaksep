@@ -1,0 +1,117 @@
+{
+  "name": "one_batch_test",
+  "n_gpu": 1,
+  "preprocessing": {
+    "sr": 16000,
+    "spectrogram": {
+      "type": "MelSpectrogram",
+      "args": {
+      }
+    },
+    "log_spec": false
+  },
+  "augmentations": {
+    "wave": [
+    ],
+    "spectrogram": []
+  },
+  "arch": {
+    "type": "SpexPlus",
+    "args": {
+      "l1": 16,
+      "l2": 8,
+      "l3": 4,
+      "C_embed": 128,
+      "speech_encoder": {
+        "n_filters": 64
+      },
+      "speaker_encoder": {
+        "R_n": 1
+      }, 
+      "speaker_extractor": {
+        "n_stacks": 1,
+        "tcn_kernel_size": 3, 
+        "dilations": [1, 2, 4, 8]
+      },
+      "n_classes": 910      
+    }
+  },
+  "data": {
+    "train": {
+      "batch_size": 20,
+      "num_workers": 0,
+      "datasets": [
+        {
+          "type": "MixtureDataset",
+          "args": {
+            "path": "../datasets/libri_ss/train",
+            "max_audio_length": 20.0,
+            "limit": 20
+          }
+        }
+      ]
+    },
+    "val": {
+      "batch_size": 20,
+      "num_workers": 0,
+      "datasets": [
+        {
+          "type": "MixtureDataset",
+          "args": {
+            "path": "../datasets/libri_ss/train",
+            "max_audio_length": 20.0,
+            "limit": 20
+          }
+        }
+      ]
+    }
+  },
+  "optimizer": {
+    "type": "Adam",
+    "args": {
+      "lr": 1e-3,
+      "weight_decay": 1e-5
+    }
+  },
+  "loss": {
+    "type": "SuperLoss",
+    "args": {
+      "alpha": 0.5,
+      "beta": 1.0
+    }
+  },
+  "metrics": [
+    {
+      "type": "PESQMetric",
+      "args": {
+        "name": "PESQ",
+        "fs": 16000
+      }
+    },
+    {
+      "type": "SISDR",
+      "args": {
+        "name": "SISDR"
+      }
+    }
+  ],
+  "lr_scheduler": {
+    "type": "ExponentialLR",
+    "args": {
+      "gamma": 0.2
+    }
+  },
+  "trainer": {
+    "change_lr_epochs": 2,
+    "epochs": 150,
+    "save_dir": "saved/",
+    "save_period": 50,
+    "verbosity": 2,
+    "monitor": "min val_loss",
+    "early_stop": 100,
+    "visualize": "wandb",
+    "wandb_project": "ss_project",
+    "len_epoch": 100,
+    "grad_norm_clip": 3
+  }
+}

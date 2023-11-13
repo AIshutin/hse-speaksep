@@ -1,0 +1,118 @@
+{
+  "name": "spexplus-small-f1",
+  "n_gpu": 1,
+  "preprocessing": {
+    "sr": 16000,
+    "spectrogram": {
+      "type": "MelSpectrogram",
+      "args": {
+      }
+    },
+    "log_spec": false
+  },
+  "augmentations": {
+    "wave": [
+    ],
+    "spectrogram": []
+  },
+  "arch": {
+    "type": "SpexPlus",
+    "args": {
+      "l1": 384,
+      "l2": 192,
+      "l3": 48,
+      "C_embed": 128,
+      "speech_encoder": {
+        "n_filters": 32
+      },
+      "speaker_encoder": {
+        "R_n": 1
+      }, 
+      "speaker_extractor": {
+        "n_stacks": 2,
+        "tcn_kernel_size": 3, 
+        "dilations": [1, 2, 4, 8, 16, 32, 64, 128]
+      },
+      "n_classes": 1000      
+    }
+  },
+  "data": {
+    "train": {
+      "batch_size": 16,
+      "num_workers": 6,
+      "datasets": [
+        {
+          "type": "MixtureDataset",
+          "args": {
+            "path": "../datasets/libri_ss/train",
+            "max_audio_length": 4.0
+          }
+        }
+      ]
+    },
+    "val": {
+      "batch_size": 32,
+      "num_workers": 2,
+      "datasets": [
+        {
+          "type": "MixtureDataset",
+          "args": {
+            "path": "../datasets/libri_ss/val"
+          }
+        }
+      ]
+    }
+  },
+  "optimizer": {
+    "type": "Adam",
+    "args": {
+      "lr": 1e-3,
+      "weight_decay": 1e-5
+    }
+  },
+  "loss": {
+    "type": "SuperLoss",
+    "args": {
+      "alpha": 0.5,
+      "beta": 1.0
+    }
+  },
+  "metrics": [
+    {
+      "type": "SISDR",
+      "args": {
+        "name": "SISDR"
+      }
+    },
+    {
+      "type": "PESQMetric",
+      "args": {
+        "name": "PESQ",
+        "fs": 16000
+      }
+    }
+  ],
+  "lr_scheduler": {
+    "type": "OneCycleLR",
+    "args": {
+      "steps_per_epoch": 625,
+      "epochs": 21,
+      "anneal_strategy": "cos",
+      "max_lr": 1e-3,
+      "pct_start": 0.15
+    }
+  },
+  "trainer": {
+    "epochs": 20,
+    "save_dir": "saved/",
+    "save_period": 1,
+    "verbosity": 2,
+    "monitor": "min val_loss",
+    "early_stop": 30,
+    "visualize": "wandb",
+    "wandb_project": "ss_project",
+    "len_epoch": 625,
+    "grad_norm_clip": 3,
+    "log_step": 30
+  }
+}

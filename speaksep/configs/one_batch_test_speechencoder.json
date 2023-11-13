@@ -1,0 +1,134 @@
+{
+  "name": "one_batch_test",
+  "n_gpu": 1,
+  "preprocessing": {
+    "sr": 16000,
+    "spectrogram": {
+      "type": "MelSpectrogram",
+      "args": {
+      }
+    },
+    "log_spec": false
+  },
+  "augmentations": {
+    "wave": [
+      {
+        "type": "TimeStretch",
+        "args": {
+          "min_rate": 0.9,
+          "max_rate": 1.2,
+          "p": 0.0
+        }
+      },
+      {
+        "type": "AddGaussianNoiseSNR",
+        "args": {
+          "min_snr_db": 5.0,
+          "max_snr_db":25.0,
+          "p": 0.0,
+          "sample_rate": 16000
+        }
+      },
+      {
+        "type": "Gain",
+        "args": {
+          "min_gain_in_db": -15.0,
+          "max_gain_in_db": 5.0,
+          "p": 0.0
+        }
+      }
+    ],
+    "spectrogram": []
+  },
+  "arch": {
+    "type": "SimpleModel",
+    "args": {
+      "n_classes": 910,
+      "l1": 384,
+      "l2": 192,
+      "l3": 48,
+      "R_n": 1,
+      "n_filters": 64
+    }
+  },
+  "data": {
+    "train": {
+      "batch_size": 20,
+      "num_workers": 0,
+      "datasets": [
+        {
+          "type": "MixtureDataset",
+          "args": {
+            "path": "../datasets/libri_ss/train",
+            "max_audio_length": 20.0,
+            "limit": 21
+          }
+        }
+      ]
+    },
+    "val": {
+      "batch_size": 20,
+      "num_workers": 0,
+      "datasets": [
+        {
+          "type": "MixtureDataset",
+          "args": {
+            "path": "../datasets/libri_ss/train",
+            "max_audio_length": 20.0,
+            "limit": 21
+          }
+        }
+      ]
+    }
+  },
+  "optimizer": {
+    "type": "Adam",
+    "args": {
+      "lr": 1e-3
+    }
+  },
+  "loss": {
+    "type": "SuperLoss",
+    "args": {
+      "alpha": 1.0,
+      "beta": 0.0
+    }
+  },
+  "metrics": [
+    {
+      "type": "PESQMetric",
+      "args": {
+        "name": "PESQ",
+        "fs": 16000
+      }
+    },
+    {
+      "type": "SISDR",
+      "args": {
+        "name": "SISDR"
+      }
+    }
+  ],
+  "lr_scheduler": {
+    "type": "OneCycleLR",
+    "args": {
+      "steps_per_epoch": 10,
+      "epochs": 51,
+      "anneal_strategy": "cos",
+      "max_lr": 1e-2,
+      "pct_start": 0.2
+    }
+  },
+  "trainer": {
+    "epochs": 50,
+    "save_dir": "saved/",
+    "save_period": 5,
+    "verbosity": 2,
+    "monitor": "min val_loss",
+    "early_stop": 100,
+    "visualize": "wandb",
+    "wandb_project": "ss_project",
+    "len_epoch": 10,
+    "grad_norm_clip": 10
+  }
+}

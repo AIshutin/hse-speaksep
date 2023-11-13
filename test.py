@@ -6,12 +6,12 @@ from pathlib import Path
 import torch
 from tqdm import tqdm
 
-import hw_asr.model as module_model
-from hw_asr.trainer import Trainer
-from hw_asr.utils import ROOT_PATH
-from hw_asr.utils.object_loading import get_dataloaders
-from hw_asr.utils.parse_config import ConfigParser
-from hw_asr.metric.utils import calc_cer, calc_wer
+import speaksep.model as module_model
+from speaksep.trainer import Trainer
+from speaksep.utils import ROOT_PATH
+from speaksep.utils.object_loading import get_dataloaders
+from speaksep.utils.parse_config import ConfigParser
+from speaksep.metric import SISDR, PESQMetric
 
 DEFAULT_CHECKPOINT_PATH = ROOT_PATH / "default_test_model" / "checkpoint.pth"
 
@@ -22,14 +22,12 @@ def main(config, out_file):
     # define cpu or gpu if possible
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
-    # text_encoder
-    text_encoder = config.get_text_encoder()
-
     # setup data_loader instances
-    dataloaders = get_dataloaders(config, text_encoder)
+    dataloaders = get_dataloaders(config)
+    dataloaders["test"].dataset[0]
 
     # build model architecture
-    model = config.init_obj(config["arch"], module_model, n_class=len(text_encoder))
+    model = config.init_obj(config["arch"], module_model)
     logger.info(model)
 
     logger.info("Loading checkpoint: {} ...".format(config.resume))
@@ -43,7 +41,11 @@ def main(config, out_file):
     model = model.to(device)
     model.eval()
 
-    results = []
+    sisdr_results = []
+    pesq_results = []
+
+    pesq = PESQMetric(fs=config["preprocessing"]["sr"])
+    sisdr = SISDR()
 
     with torch.no_grad():
         for batch_num, batch in enumerate(tqdm(dataloaders["test"])):
@@ -53,60 +55,22 @@ def main(config, out_file):
                 batch.update(output)
             else:
                 batch["logits"] = output
-            batch["log_probs"] = torch.log_softmax(batch["logits"], dim=-1)
-            batch["log_probs_length"] = model.transform_input_lengths(
-                batch["spectrogram_length"]
-            )
-            batch["probs"] = batch["log_probs"].exp().cpu()
-            batch["argmax"] = batch["probs"].argmax(-1)
-            for i in range(len(batch["text"])):
-                argmax = batch["argmax"][i]
-                argmax = argmax[: int(batch["log_probs_length"][i])]
-                results.append(
-                    {
-                        "ground_truth": batch["text"][i],
-                        "pred_text_argmax": text_encoder.ctc_decode(argmax.cpu().numpy()),
-                        "pred_text_beam_search": text_encoder.ctc_beam_search(
-                            batch["probs"][i][:batch["log_probs_length"][i]], beam_size=100
-                        )[:10],
-                        "pred_text_beam_search_lm": text_encoder.ctc_beam_search_lm(
-                            batch["probs"][i][:batch["log_probs_length"][i]], beam_size=100
-                        )[:10]
-                    }
-                )
+
+            for i in range(batch["mixed_wave_length"].shape[0]):
+                target = batch['target_wave'][i:i+1, :]
+                separated = batch['separated'][i:i+1, :]
+                length = batch['target_wave_length'][i:i+1]
+                sisdr_results.append(pesq(separated, target, length))
+                pesq_results.append(sisdr(separated, target, length))
     
-    wer_argmax = []
-    wer_bs = []
-    wer_lm = []
-    cer_argmax = []
-    cer_bs = []
-    cer_lm = []
-    for el in results:
-        gt = el["ground_truth"]
-        bs = el['pred_text_beam_search'][0].text
-        am = el['pred_text_argmax']
-        lm = el['pred_text_beam_search_lm'][0].text
-        wer_argmax.append(calc_wer(gt, am))
-        wer_bs.append(calc_wer(gt, bs))
-        wer_lm.append(calc_wer(gt, lm))
-        cer_argmax.append(calc_cer(gt, am))
-        cer_bs.append(calc_cer(gt, bs))
-        cer_lm.append(calc_cer(gt, lm))
 
     def mean(arr):
         return sum(arr) / (1e-9 + len(arr))
 
-    print(f"WER (argmax):\t\t\t{mean(wer_argmax)*100:.2f}%")
-    print(f"WER (beam search):\t\t\t{mean(wer_bs)*100:.2f}%")
-    print(f"WER (beam search + LM):\t\t{mean(wer_lm)*100:.2f}%")
-    print(f"CER (argmax):\t\t{mean(cer_argmax)*100:.2f}%")
-    print(f"CER (beam search):\t\t\t{mean(cer_bs)*100:.2f}%")
-    print(f"CER (beam search + LM):\t\t{mean(cer_lm)*100:.2f}%")
-
-    with Path(out_file).open("w") as f:
-        json.dump(results, f, indent=2)
+    print(f"SISDR:\t{mean(sisdr_results):.2f}")
+    print(f"PESQ:\t{mean(pesq_results):.2f}")
     
-    return mean(cer_lm)
+    return mean(sisdr_results)
 
 
 if __name__ == "__main__":
@@ -159,18 +123,6 @@ if __name__ == "__main__":
         default=1,
         type=int,
         help="Number of workers for test dataloader",
-    )    
-    args.add_argument(
-        "--alpha",
-        default=None,
-        type=float,
-        help="Alpha for beam search",
-    )
-    args.add_argument(
-        "--beta",
-        default=None,
-        type=float,
-        help="Beta for beam search",
     )
 
     args = args.parse_args()
@@ -200,12 +152,9 @@ if __name__ == "__main__":
                 "num_workers": args.jobs,
                 "datasets": [
                     {
-                        "type": "CustomDirAudioDataset",
+                        "type": "CustomDirDataset",
                         "args": {
-                            "audio_dir": str(test_data_folder / "audio"),
-                            "transcription_dir": str(
-                                test_data_folder / "transcriptions"
-                            ),
+                            "path": str(test_data_folder),
                         },
                     }
                 ],
@@ -215,10 +164,5 @@ if __name__ == "__main__":
     assert config.config.get("data", {}).get("test", None) is not None
     config["data"]["test"]["batch_size"] = args.batch_size
     config["data"]["test"]["n_jobs"] = args.jobs
-
-    if args.alpha is not None:
-        config["text_encoder"]["args"]["alpha"] = args.alpha
-    if args.beta is not None:
-        config["text_encoder"]["args"]["beta"] = args.beta
 
     main(config, args.output)
